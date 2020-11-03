@@ -1,0 +1,2 @@
+C:\Users\Arter\ABC\Lab1\Debug\Lab1.exe
+C:\Users\Arter\ABC\Lab1\Debug\Lab1.pdb
