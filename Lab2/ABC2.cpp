@@ -13,14 +13,13 @@ mutex _mutex;
 int mcounter = 0;
 atomic<int> _atomic = 0;
 const int NumTasks = 1024 * 1024;
-const int TaskNum = 100;
+const int TaskNum = 4 * 1024 * 1024;
 int ProducerNum[] = { 1, 2, 4 };
 int ConsumerNum[] = { 1, 2, 4 };
-int QueueSize[] = { 1, 4, 16 };
-int sum;
+const int QueueSize[] = { 1, 4, 16 };
 
 
-void counter(int task, int *arr, bool sleep) {
+void counter(double task, int *arr, bool sleep) {
     int _counter = 0;
     while (_counter <= NumTasks) {
         if (task == 1.1) {
@@ -32,13 +31,13 @@ void counter(int task, int *arr, bool sleep) {
             _counter = _atomic++;
         }
         arr[_counter]++;
-        if (sleep) 
+        if (sleep)
             this_thread::sleep_for(chrono::nanoseconds(10));
     }
 }
 
 
-void ArrayTask(int task, bool sleep) {
+void ArrayTask(double task, bool sleep) {
     int* _array = new int[NumTasks];
     int miss;
     int NumThreads[4] = { 4, 8, 16, 32 };
@@ -71,6 +70,7 @@ class Queue
 {
 private:
     queue<uint8_t> _queue;
+    atomic<int> producers;
 public:
 
     void push(uint8_t val)
@@ -96,6 +96,18 @@ public:
         _mutex.unlock();
         return false;
     }
+
+    void setProducers(int producers) {
+        this->producers = producers;
+    }
+
+    int getProducers() {
+        return producers;
+    }
+
+    void stoppedProducers() {
+        producers--;
+    }
 };
 
 
@@ -105,17 +117,18 @@ class Queue2
 private:
     queue<uint8_t> _queue;
     int size;
+    atomic<int> producers;
     condition_variable queue_check;
     condition_variable queue_check2;
 public:
-    explicit Queue2(int size) {
+    Queue2(int size) {
         this->size = size;
     }
 
     void push(uint8_t val)
     {
         unique_lock<mutex> locker(_mutex);
-            queue_check.wait(locker, [this]() { return _queue.size() < size; });
+        queue_check.wait(locker, [this]() { return _queue.size() < size; });
         _queue.push(val);
         queue_check2.notify_one();
     }
@@ -123,7 +136,6 @@ public:
     bool pop(uint8_t& val) {
         unique_lock<mutex> locker(_mutex);
         queue_check2.wait_for(locker, chrono::milliseconds(1), [this]() { return !_queue.empty(); });
-        
         if (!_queue.empty()) {
             val = _queue.front();
             _queue.pop();
@@ -131,6 +143,18 @@ public:
             return true;
         }
         return false;
+    }
+
+    void setProducers(int producers) {
+        this->producers = producers;
+    }
+
+    int getProducers() {
+        return producers;
+    }
+
+    void stoppedProducers() {
+        producers--;
     }
 };
 
@@ -143,34 +167,40 @@ public:
         for (int i = 0; i < TaskNum; i++) {
             _queue.push(1);
         }
+        _queue.stoppedProducers();
     }
 
-
-    static void consumer(T& _queue) {
-        int counter = 0;
+    static void consumer(T& _queue, int &counter) {
         uint8_t val = 0;
         while (true) {
             if (!_queue.pop(val)) {
-                break;
+                if (!_queue.getProducers()) {
+                    break;
+                }
             }
-            counter += val;
+            else
+            {
+                counter += val;
+            }
         }
-        sum += counter;
     }
-
 
     static void _task(T& _queue) {
         for (int Producer : ProducerNum) {
             for (int Consumer : ConsumerNum) {
+                _queue.setProducers(Producer);
                 vector<thread> _producers;
                 vector<thread> _consumers;
                 auto start = chrono::high_resolution_clock::now();
-                sum = 0;
+                int* counter = new int[Consumer];
+                for (int i = 0; i < Consumer; i++) {
+                    counter[i] = 0;
+                }
                 for (int i = 0; i < Producer; i++) {
                     _producers.emplace_back(&Task2<T>::producer, ref(_queue));
                 }
                 for (int i = 0; i < Consumer; i++) {
-                    _consumers.emplace_back(&Task2<T>::consumer, ref(_queue));
+                    _consumers.emplace_back(&Task2<T>::consumer, ref(_queue), ref(counter[i]));
                 }
                 for (thread& _producer : _producers) {
                     _producer.join();
@@ -178,10 +208,13 @@ public:
                 for (thread& _consumer : _consumers) {
                     _consumer.join();
                 }
-
                 auto end = chrono::high_resolution_clock::now();
                 chrono::duration<float> duration = end - start;
-                cout << "With producers : consumerNum = " << Producer << " : " << Consumer << " threads lasted " << duration.count() << " with result " << sum << "\n";
+                int sum = 0;
+                for (int i = 0; i < Consumer; i++) {
+                    sum += counter[i];
+                }
+                cout << "With producers : consumerNum = " << Producer << " : " << Consumer << " threads lasted " << duration.count() << " with result " << (sum == Producer * TaskNum ? "true" : "false") << "\n";
             }
 
         }
@@ -192,11 +225,7 @@ public:
 
 int main()
 {
-    
-
     double task = 0;
-
-
     cout << "Tasks:\n";
     cout << "1 - array task\n";
     cout << "2.1 - first queue task\n";
@@ -227,7 +256,5 @@ int main()
             cout << "\n";
         }
     }
-
-
 }
 
