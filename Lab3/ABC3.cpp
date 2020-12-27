@@ -7,8 +7,10 @@
 using namespace std;
 
 
-void task(int* array1, int *array2, int *array3, int n, int i, int j) {
+void task(int* array1, int* array2, int* array3, int n, bool _omp) {
+    int i = 0, j = 0;
     auto start = chrono::high_resolution_clock::now();
+#pragma omp parallel for private(i, j) if (_omp)
     /*cout << "array1\t" << "array2\t" << "array3\t" << "\n";*/
     for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
@@ -33,7 +35,7 @@ void check(int* array1, int* array2, int n) {
     }
     cout << "similar";
     return;
-    
+
 }
 
 int main() {
@@ -42,9 +44,9 @@ int main() {
     cin >> n;
     cout << "\n";
 
-	int *array1 = new int[n];
-	int *array2 = new int[n];
-    int *array3 = new int[n];
+    int* array1 = new int[n];
+    int* array2 = new int[n];
+    int* array3 = new int[n];
     int* array4 = new int[n];
     for (int i = 0; i < n; i++)
     {
@@ -53,15 +55,12 @@ int main() {
         array3[i] = 0;
         array4[i] = 0;
     }
-    int i = 0, j = 0;
 
     cout << "No omp\n";
-    task(array1, array2, array3, n, i, j);
-        
+    task(array1, array2, array3, n, false);
 
     cout << "Omp\n";
-    #pragma omp parallel for private(i, j, n)
-        task(array1, array2, array4, n, i, j);
+    task(array1, array2, array4, n, true);
 
     check(array3, array4, n);
 }
