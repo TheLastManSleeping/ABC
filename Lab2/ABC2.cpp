@@ -6,13 +6,15 @@
 #include <condition_variable>
 #include <atomic>
 #include <queue>
+#include <cassert>
 
 using namespace std;
 
 mutex _mutex;
 int mcounter = 0;
 atomic<int> _atomic = 0;
-const int NumTasks = 1024 * 1024;
+atomic<int> producers;
+const int NumTasks = 3;
 const int TaskNum = 4 * 1024 * 1024;
 int ProducerNum[] = { 1, 2, 4 };
 int ConsumerNum[] = { 1, 2, 4 };
@@ -21,18 +23,23 @@ const int QueueSize[] = { 1, 4, 16 };
 
 void counter(double task, int *arr, bool sleep) {
     int _counter = 0;
-    while (_counter <= NumTasks) {
+    while (true) {
         if (task == 1.1) {
-            _mutex.lock();
+            _mutex.lock();   
             _counter = mcounter++;
             _mutex.unlock();
         }
         else {
             _counter = _atomic++;
         }
+        if (_counter >= NumTasks) { 
+            break; 
+        }
+        assert(_counter < NumTasks);
         arr[_counter]++;
-        if (sleep)
+        if (sleep) {
             this_thread::sleep_for(chrono::nanoseconds(10));
+        }
     }
 }
 
@@ -70,7 +77,6 @@ class Queue
 {
 private:
     queue<uint8_t> _queue;
-    atomic<int> producers;
 public:
 
     void push(uint8_t val)
@@ -97,19 +103,7 @@ public:
         return false;
     }
 
-    void setProducers(int producers) {
-        this->producers = producers;
-    }
-
-    int getProducers() {
-        return producers;
-    }
-
-    void stoppedProducers() {
-        producers--;
-    }
 };
-
 
 
 class Queue2
@@ -117,7 +111,6 @@ class Queue2
 private:
     queue<uint8_t> _queue;
     int size;
-    atomic<int> producers;
     condition_variable queue_check;
     condition_variable queue_check2;
 public:
@@ -144,20 +137,7 @@ public:
         }
         return false;
     }
-
-    void setProducers(int producers) {
-        this->producers = producers;
-    }
-
-    int getProducers() {
-        return producers;
-    }
-
-    void stoppedProducers() {
-        producers--;
-    }
 };
-
 
 
 template<typename T>
@@ -167,14 +147,14 @@ public:
         for (int i = 0; i < TaskNum; i++) {
             _queue.push(1);
         }
-        _queue.stoppedProducers();
+        producers--;
     }
 
     static void consumer(T& _queue, int &counter) {
         uint8_t val = 0;
         while (true) {
             if (!_queue.pop(val)) {
-                if (!_queue.getProducers()) {
+                if (!producers) {
                     break;
                 }
             }
@@ -188,7 +168,7 @@ public:
     static void _task(T& _queue) {
         for (int Producer : ProducerNum) {
             for (int Consumer : ConsumerNum) {
-                _queue.setProducers(Producer);
+                producers = Producer;
                 vector<thread> _producers;
                 vector<thread> _consumers;
                 auto start = chrono::high_resolution_clock::now();
